@@ -1,4 +1,38 @@
-﻿Function Add-VMGpuPartitionAdapterFiles {
+﻿Function Copy-AMDDriverPackages {
+param(
+[string]$FileRepository = "C:\Windows\System32\DriverStore\FileRepository",
+[string]$VmFileRepository
+)
+
+if (-not $VmFileRepository) {
+    Write-Host "WARN   : No VM FileRepository destination supplied, skipping AMD driver package copy." -ForegroundColor DarkYellow
+    return
+}
+
+New-Item -ItemType Directory -Path $VmFileRepository -Force -ErrorAction SilentlyContinue | Out-Null
+
+$amdFolders = @(Get-ChildItem -Path $FileRepository -Directory -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Name -like "amdogl.inf_amd64*" -or
+        $_.Name -like "amdvlk.inf_amd64*"
+    })
+
+if ($amdFolders.Count -eq 0) {
+    Write-Host "WARN   : No amdogl.inf_amd64* or amdvlk.inf_amd64* folders found in $FileRepository - nothing to copy." -ForegroundColor DarkYellow
+    return
+}
+
+foreach ($folder in $amdFolders) {
+    $dest = Join-Path $VmFileRepository $folder.Name
+    Write-Host "INFO   : Copying $($folder.Name) to $dest..."
+    robocopy $folder.FullName $dest /E | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        Write-Host "ERROR  : robocopy failed for $($folder.Name) with exit code $LASTEXITCODE" -ForegroundColor Red
+    }
+}
+}
+
+Function Add-VMGpuPartitionAdapterFiles {
 param(
 [string]$hostname = $ENV:COMPUTERNAME,
 [string]$DriveLetter,
@@ -8,6 +42,21 @@ param(
 If (!($DriveLetter -like "*:*")) {
     $DriveLetter = $Driveletter + ":"
     }
+
+# Safety check: if the caller didn't pass a real drive letter (e.g. Mount-VHD didn't
+# auto-assign one), DriveLetter collapses to just ":" and every destination path below
+# becomes invalid or resolves onto the HOST filesystem instead of the mounted VM disk.
+# Previously this failed silently (non-terminating errors) while the calling script
+# still reported success. Fail loudly instead.
+if ($DriveLetter -notmatch '^[A-Za-z]:$') {
+    Throw "FATAL  : No valid drive letter was supplied (got '$DriveLetter'). Aborting before any files are copied so nothing gets silently written to the wrong location."
+    }
+
+Write-Host "INFO   : Drive Letter: $DriveLetter"
+Write-Host "INFO   : GPU Name: $GPUName"
+
+Write-Host "INFO   : Copying AMD OpenGL and Vulkan driver packages into VM..."
+Copy-AMDDriverPackages -VmFileRepository "$DriveLetter\Windows\System32\HostDriverStore\FileRepository"
 
 If ($GPUName -eq "AUTO") {
     $PartitionableGPUList = Get-WmiObject -Class "Msvm_PartitionableGpu" -ComputerName $env:COMPUTERNAME -Namespace "ROOT\virtualization\v2"
@@ -24,7 +73,11 @@ Else {
 
 Write-Host "INFO   : Finding and copying driver files for $GPUName to VM. This could take a while..."
 
-$Drivers = Get-WmiObject Win32_PNPSignedDriver | where {$_.DeviceName -eq "$GPUName"}
+Write-Host "Get-WmiObject Win32_PNPSignedDriver $Drivers"
+$Drivers = Get-WmiObject Win32_PNPSignedDriver | Where-Object {($_.DeviceName -eq "$GPUName")}
+
+echo "$Drivers"
+Write-Host "$Drivers"
 
 New-Item -ItemType Directory -Path "$DriveLetter\windows\system32\HostDriverStore" -Force | Out-Null
 
@@ -48,6 +101,7 @@ foreach ($d in $drivers) {
     $DriverID = $d.DeviceID
     if ($DriverName -like "NVIDIA*") {
         New-Item -ItemType Directory -Path "$driveletter\Windows\System32\drivers\Nvidia Corporation\" -Force | Out-Null
+        Write-Host "INFO   : Copying NVIDIA driver files for $DriverName to VM..."
         }
     foreach ($i in $DriverFiles) {
             $path = $i.Dependent.Split("=")[1] -replace '\\\\', '\'
@@ -58,9 +112,13 @@ foreach ($d in $drivers) {
                 $DriverDir = $path2.split('\')[0..5] -join('\')
                 $driverDest = ("$driveletter" + "\" + $($path2.split('\')[1..5] -join('\'))).Replace("driverstore","HostDriverStore")
                 if (!(Test-Path $driverDest)) {
-                Copy-item -path "$DriverDir" -Destination "$driverDest" -Recurse
+                Copy-item -path "$DriverDir" -Destination "$driverDest" -Recurse -Force
+                Write-Host "INFO   : Copying $DriverName driver files to VM..."
                 }
-            }
+                Else {
+                    Write-Host "INFO   : $DriverName driver files already exist in VM, skipping copy..."
+                    }
+                }
             Else {
                 $ParseDestination = $path2.Replace("c:", "$driveletter")
                 $Destination = $ParseDestination.Substring(0, $ParseDestination.LastIndexOf('\'))
@@ -68,10 +126,8 @@ foreach ($d in $drivers) {
                     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
                     }
                 Copy-Item $path2 -Destination $Destination -Force
-                
+
             }
-
     }
     }
-
 }
