@@ -7,7 +7,8 @@ Easy-GPU-PV aims to make this easier by automating the steps required to get a G
 Easy-GPU-PV does the following...  
 1) Creates a VM of your choosing
 2) Automatically Installs Windows to the VM
-3) Partitions your GPU of choice and copies the required driver files to the VM  
+3) Partitions your GPU of choice and copies the required driver files to the VM
+4) Runs a one-time debloat at the VM's first logon (removes bloatware, blocks OneDrive/Outlook/Copilot, and applies the dark theme)  
 
 After that, you should install a GPU accelerated remote desktop app / game streaming app as well as a virtual display driver to get the most out of the VM. Check the Issues tab on this repo to get recommendations.
 
@@ -39,8 +40,27 @@ After that, you should install a GPU accelerated remote desktop app / game strea
 - The parameter values in `CopyFilesToVM.ps1` are machine-specific; review and set the VM name, ISO path, storage, memory, CPU, and GPU values for your own host before running it.
 - `Fix-VMGpuPartitionAllocation.ps1` is available for VMs with GPU-PV allocation problems (for example, GPU workloads crashing during startup). See below before running it: it may forcibly stop a running VM.
 - Optional WOL and suspend listeners can wake a VM from the LAN and suspend/save it when a remote gaming session ends. Setup instructions follow.
-- `autounattend.xml` now applies a fuller unattended configuration during the Windows install: en-US regional settings, dark theme for both system and apps, debloat (removes bundled bloatware apps, the Recall optional feature, and Windows capabilities such as Fax, WordPad, and Media Player), and a built-in script engine that configures the taskbar and Start menu and blocks OneDrive, Outlook, and Copilot setup.
+- The debloat (bundled app removal, Windows capability and optional-feature removal such as Recall, Fax, WordPad, and Media Player, OneDrive/Outlook/Copilot blocking, dark theme, and taskbar/Start layout) now runs as a one-time elevated task at the VM's first logon instead of during the Windows install. See the "One-time debloat" section below.
+- `autounattend.xml` keeps the standard unattended configuration (regional settings, autologon, the GPU-P account, en-US and dark-theme base settings); the heavy debloat work is done by the first-logon task, not the Windows Setup passes.
 - AMD OpenGL and Vulkan driver packages (`amdogl.inf_amd64*` and `amdvlk.inf_amd64*`) are now automatically copied into the VM's `HostDriverStore\FileRepository`, improving OpenGL and Vulkan game support on AMD GPUs.
+
+### One-time debloat
+
+Building a VM automatically runs a one-time debloat at the VM's first logon. You do not need to trigger it yourself; it runs once and then performs a single reboot to finalize. It:
+
+- Removes the bundled Windows Store bloatware apps (`Debloater\RemovePackages.ps1`).
+- Removes Windows capabilities and optional features, including the Recall preview, Fax, WordPad, and Media Player (`Debloater\RemoveCapabilities.ps1`, `Debloater\RemoveFeatures.ps1`).
+- Applies machine policies that block OneDrive, Outlook, and Copilot setup and harden Edge and RDP (`Debloater\Specialize.ps1`).
+- Configures the default user and your account, applies the dark theme, and sets the taskbar and Start layout (`Debloater\DefaultUser.ps1`, `Debloater\UserOnce.ps1`, `Debloater\SetColorTheme.ps1`, `Debloater\SetStartPins.ps1`).
+
+How it works:
+
+- The scripts live in `Debloater\`. At build time, `Setup-Install` (in `CopyFilesToVM.ps1`) copies them into the VHD: the script set goes to `C:\Windows\Setup\Scripts\` and the orchestrator to `C:\ProgramData\Easy-GPU-P\`.
+- At first logon, the Group Policy logon script (`User\Install.ps1`) registers and starts a one-time, elevated scheduled task named `EasyGPU Debloat`.
+- That task runs `Debloater\Run-Debloater.ps1`, which executes the debloat chain in order and then reboots once.
+- A completion flag (`C:\ProgramData\Easy-GPU-P\debloat-complete.flag`) is written before the reboot, so the debloat never runs a second time (no reboot loop).
+
+If the debloat does not appear to have run, check that the `EasyGPU Debloat` task exists under **Task Scheduler** on the host/VM and review `C:\ProgramData\Easy-GPU-P\debloat.log`.
 
 ### Fixing GPU partition allocation
 
@@ -133,6 +153,7 @@ It's important to update the VM GPU Drivers after you have updated the Host GPUs
 
 
 ### Thanks to:  
+- [mjarvisal](https://github.com/mjarvisal/Easy-GPU-PV_WOL) for the Wake-on-LAN and auto-suspend listener work used in the `WOL listener` folder.
 - [Hyper-ConvertImage](https://github.com/tabs-not-spaces/Hyper-ConvertImage) for creating an updated version of [Convert-WindowsImage](https://github.com/MicrosoftDocs/Virtualization-Documentation/tree/master/hyperv-tools/Convert-WindowsImage) that is compatible with Windows 10 and 11.
 - [gawainXX](https://github.com/gawainXX) for help testing and pointing out bugs and feature improvements.  
 

@@ -170,6 +170,11 @@ param(
     Copy-Item -Path $psscriptroot\gpt.ini -Destination $DriveLetter\Windows\system32\GroupPolicy
     Copy-Item -Path $psscriptroot\User\psscripts.ini -Destination $DriveLetter\Windows\system32\GroupPolicy\User\Scripts
     Copy-Item -Path $psscriptroot\User\Install.ps1 -Destination $DriveLetter\Windows\system32\GroupPolicy\User\Scripts\Logon
+    # Stage the debloat scripts into the VHD where the debloat chain expects them,
+    # and place the orchestrator next to the other Easy-GPU-P scripts.
+    if((Test-Path -Path $DriveLetter\Windows\Setup\Scripts) -eq $true) {} Else {New-Item -Path $DriveLetter\Windows\Setup\Scripts -ItemType directory -Force | Out-Null}
+    Copy-Item -Path "$psscriptroot\Debloater\*" -Destination $DriveLetter\Windows\Setup\Scripts -Force
+    Copy-Item -Path "$psscriptroot\Debloater\Run-Debloater.ps1" -Destination $DriveLetter\ProgramData\Easy-GPU-P -Force
 }
 
 function Convert-WindowsImage {
