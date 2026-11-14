@@ -88,6 +88,24 @@ function Remove-StaleGuestNvidiaFiles {
     }
 }
 
+function Remove-StaleGuestAmdFiles {
+    param([string]$DriveLetter)
+    $win = "${DriveLetter}:\Windows"
+
+    $store = "$win\System32\HostDriverStore\FileRepository"
+    if (Test-Path $store) {
+        "Removing stale AMD driver folders from guest HostDriverStore..."
+        Get-ChildItem $store -Directory -Filter 'amdgpu.inf_amd64*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Continue
+    }
+
+    "Removing stale AMD files from guest System32/SysWOW64 so the module copies fresh ones..."
+    foreach ($dir in 'System32', 'SysWOW64') {
+        Grant-GuestAccess "$win\$dir\amdgpu*"
+        Get-ChildItem "$win\$dir" -Filter 'amdgpu*' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction Continue
+    }
+}
+
 function Copy-GuestSystemFiles {
     param([string]$DriveLetter)
 
@@ -159,6 +177,7 @@ try {
     "Guest volume mounted as ${DriveLetter}:"
 
     if ($CleanStaleDriverStore) { Remove-StaleGuestNvidiaFiles -DriveLetter $DriveLetter }
+    if ($CleanStaleDriverStore -and ($GPUName -like "*AMD*" -or $GPUName -like "*Radeon*" -or $GPUName -like "*ATI*")) { Remove-StaleGuestAmdFiles -DriveLetter $DriveLetter }
 
     # The module aborts at the first "access denied", so unblock the folders it is known to hit up front
     # (WSL libs and the NVIDIA license file) instead of fixing them one file per retry.
