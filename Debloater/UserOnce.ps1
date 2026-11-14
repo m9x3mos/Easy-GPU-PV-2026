@@ -6,7 +6,10 @@
 		[System.Diagnostics.EventLog]::WriteEntry( 'UnattendGenerator', "User '$env:USERNAME' has requested to unlock the Start menu layout.", [System.Diagnostics.EventLogEntryType]::Information, 1 );
 	};
 	{
-		Set-ItemProperty -LiteralPath 'Registry::HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'LaunchTo' -Type 'DWord' -Value 1;
+		Set-ItemProperty -LiteralPath 'Registry::HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'TaskbarDeveloperSettings' -Value 1 -Type 'DWord' -Force;
+	};
+	{
+		reg.exe add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v Start_IcoPosition /t REG_DWORD /d 1 /f;
 	};
 	{
 		Set-ItemProperty -LiteralPath 'Registry::HKCU\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -Type 'DWord' -Value 0;
@@ -22,10 +25,7 @@
 );
 
 & {
-  [float] $complete = 0;
-  [float] $increment = 100 / $scripts.Count;
   foreach( $script in $scripts ) {
-    Write-Progress -Id 0 -Activity 'Running scripts to configure this user account. Do not close this window.' -PercentComplete $complete;
     '*** Will now execute command «{0}».' -f $(
       $script.ToString().Trim() -replace '\s+', ' ' -replace '^(.{99})(.+)$', '$1…';
     );
@@ -33,6 +33,5 @@
     & $script;
     '*** Finished executing command after {0:0} ms.' -f [datetime]::Now.Subtract( $start ).TotalMilliseconds;
     "`r`n" * 3;
-    $complete += $increment;
   }
-} *>&1 | Out-String -Width 1KB -Stream >> "$env:TEMP\UserOnce.log";
+} *>&1 | Tee-Object -Append -FilePath "$env:TEMP\UserOnce.log";

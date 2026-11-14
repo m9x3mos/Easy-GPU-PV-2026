@@ -6,16 +6,19 @@ $ErrorActionPreference = 'Continue'
 $pkgDir    = 'C:\ProgramData\Easy-GPU-P'
 $flagPath  = Join-Path $pkgDir 'debloat-complete.flag'
 $scriptDir = 'C:\Windows\Setup\Scripts'
-$logFile   = Join-Path $pkgDir 'debloat.log'
+$logFile   = 'C:\Windows\Setup\Scripts\debloat.log'
 
 function Write-Log {
     param([string]$Message)
     $line = ('{0}  {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message)
     Write-Output $line
     try {
-        if (-not (Test-Path -LiteralPath $pkgDir)) { New-Item -Path $pkgDir -ItemType Directory -Force | Out-Null }
+        $logDir = Split-Path -Parent $logFile
+        if ($logDir -and -not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
         Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
-    } catch { }
+    } catch {
+        Write-Output ('LOG WRITE ERROR: ' + $_.Exception.Message)
+    }
 }
 
 # One-time guard: if the core debloat already completed, do nothing.
@@ -32,21 +35,11 @@ Write-Log 'Running Specialize.ps1 ...'
 try { & (Join-Path $scriptDir 'Specialize.ps1') }
 catch { Write-Log ('Specialize.ps1 ERROR: ' + $_.Exception.Message) }
 
-# 2) Default-user template configuration. The hive must be mounted at HKU\DefaultUser
-#    because DefaultUser.ps1 targets that path.
-$loaded = $false
-Write-Log 'Loading HKU\DefaultUser hive ...'
-$loadResult = reg.exe load 'HKU\DefaultUser' 'C:\Users\Default\NTUSER.DAT' 2>&1
-if ($LASTEXITCODE -eq 0) { $loaded = $true; Write-Log 'Default user hive loaded.' }
-else { Write-Log ('Hive load result (may already be available): ' + ($loadResult -join ' ')) }
-
+# 2) Default-user template configuration. The hive is always loaded at HKU\Default,
+#    which DefaultUser.ps1 now targets (no manual reg load/unload needed).
+Write-Log 'Running DefaultUser.ps1 ...'
 try { & (Join-Path $scriptDir 'DefaultUser.ps1') }
 catch { Write-Log ('DefaultUser.ps1 ERROR: ' + $_.Exception.Message) }
-
-if ($loaded) {
-    reg.exe unload 'HKU\DefaultUser' 2>&1 | Out-Null
-    Write-Log 'Default user hive unloaded.'
-}
 
 # 3) Per-user configuration: removes the user's Copilot package, applies the user's
 #    dark theme and explorer settings, then restarts explorer.

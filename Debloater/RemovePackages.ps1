@@ -1,70 +1,64 @@
-﻿$selectors = @(
-	'Microsoft.Microsoft3DViewer';
-	'Microsoft.BingSearch';
-	'Clipchamp.Clipchamp';
-	'Microsoft.Copilot';
-	'Microsoft.549981C3F5F10';
-	'Microsoft.Windows.DevHome';
-	'MicrosoftCorporationII.MicrosoftFamily';
-	'Microsoft.WindowsFeedbackHub';
-	'Microsoft.GetHelp';
-	'Microsoft.Getstarted';
-	'microsoft.windowscommunicationsapps';
-	'Microsoft.WindowsMaps';
-	'Microsoft.MixedReality.Portal';
-	'Microsoft.BingNews';
-	'Microsoft.MicrosoftOfficeHub';
-	'Microsoft.Office.OneNote';
-	'Microsoft.OutlookForWindows';
-	'Microsoft.MSPaint';
-	'Microsoft.People';
-	'Microsoft.PowerAutomateDesktop';
-	'Microsoft.SkypeApp';
-	'Microsoft.MicrosoftSolitaireCollection';
-	'Microsoft.MicrosoftStickyNotes';
-	'MicrosoftTeams';
-	'MSTeams';
-	'Microsoft.Todos';
-	'Microsoft.WindowsSoundRecorder';
-	'Microsoft.Wallet';
-	'Microsoft.BingWeather';
-);
-$getCommand = {
-  Get-AppxProvisionedPackage -Online;
-};
-$filterCommand = {
-  $_.DisplayName -eq $selector;
-};
-$removeCommand = {
-  [CmdletBinding()]
-  param(
-    [Parameter( Mandatory, ValueFromPipeline )]
-    $InputObject
-  );
-  process {
-    $InputObject | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction 'Continue';
-  }
-};
-$type = 'Package';
-$logfile = 'C:\Windows\Setup\Scripts\RemovePackages.log';
-& {
-	$installed = & $getCommand;
-	foreach( $selector in $selectors ) {
-		$result = [ordered] @{
-			Selector = $selector;
-		};
-		$found = $installed | Where-Object -FilterScript $filterCommand;
-		if( $found ) {
-			$result.Output = $found | & $removeCommand;
-			if( $? ) {
-				$result.Message = "$type removed.";
-			} else {
-				$result.Message = "$type not removed.";
-				$result.Error = $Error[0];
-			}
-		} else {
-			$result.Message = "$type not installed.";
-		}
-		$result | ConvertTo-Json -Depth 3 -Compress;
-	}
-} *>&1 | Out-String -Width 1KB -Stream >> $logfile;
+﻿$ErrorActionPreference = 'Continue'
+
+# Provisioned Appx packages to remove. Order does not matter.
+$packages = @(
+    'Microsoft.Windows.Cortana'
+    'Microsoft.MicrosoftStickerPack'
+    'Microsoft.GamingApp'
+    'Microsoft.GetHelp'
+    'Microsoft.MSPaint'
+    'Microsoft.OneDrive'
+    'Microsoft.Print3D'
+    'Microsoft.Windows.Phones'
+    'Microsoft.WindowsMaps'
+    'Microsoft.WindowsSoundRecorder'
+    'Microsoft.ZuneMusic'
+    'Microsoft.ZuneVideo'
+    'Microsoft.People'
+    'Microsoft.3DBuilder'
+    'Microsoft.BingNews'
+    'Microsoft.3DPrintProvider'
+    'Microsoft.MixedReality.Portal'
+    'Microsoft.WindowsFeedbackHub'
+    'Microsoft.Windows.Copilot'
+) | Select-Object -Unique
+
+# Remove each package in its own dism.exe process with a hard timeout, so a
+# single stuck package is killed and skipped instead of hanging the whole run.
+$timeoutSec = 60
+$removed  = 0
+$timedOut = 0
+$failed   = 0
+
+foreach ($pkg in $packages) {
+    Write-Host "Removing provisioned package: $pkg" -ForegroundColor Cyan
+    $proc = $null
+    try {
+        $proc = Start-Process -FilePath 'dism.exe' `
+            -ArgumentList '/Online', '/Remove-ProvisionedAppxPackage', "/PackageName:$pkg" `
+            -PassThru -WindowStyle Hidden
+        $exited = $proc.WaitForExit($timeoutSec * 1000)
+        if (-not $exited) {
+            Write-Host "  TIMEOUT after ${timeoutSec}s - killing and skipping $pkg" -ForegroundColor Yellow
+            try { $proc.Kill() } catch {}
+            $timedOut++
+            continue
+        }
+        if ($proc.ExitCode -eq 0) {
+            Write-Host "  removed: $pkg" -ForegroundColor Green
+            $removed++
+        } else {
+            Write-Host "  skipped (not present / exit $($proc.ExitCode)): $pkg" -ForegroundColor DarkGray
+        }
+    }
+    catch {
+        Write-Host "  error removing $pkg : $($_.Exception.Message)" -ForegroundColor DarkGray
+        $failed++
+    }
+}
+
+Write-Host ''
+Write-Host ("RemovePackages done: {0} removed, {1} timed out, {2} failed" -f $removed, $timedOut, $failed) -ForegroundColor White
+
+Write-Host 'Applying Start menu pins ...' -ForegroundColor Cyan
+& 'C:\Windows\Setup\Scripts\SetStartPins.ps1'

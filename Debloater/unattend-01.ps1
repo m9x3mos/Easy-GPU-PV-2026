@@ -8,8 +8,8 @@ if (-not (Test-Path $path)) {
 }
 
 # Set the DWORD values
-New-ItemProperty -Path $path -Name "DisableCloudOptimizedContent" -PropertyType DWord -Value 0 -Force | Out-Null
-New-ItemProperty -Path $path -Name "DisableWindowsConsumerFeatures" -PropertyType DWord -Value 0 -Force | Out-Null
+New-ItemProperty -Path $path -Name "DisableCloudOptimizedContent" -PropertyType DWord -Value 1 -Force | Out-Null
+New-ItemProperty -Path $path -Name "DisableWindowsConsumerFeatures" -PropertyType DWord -Value 1 -Force | Out-Null
 
 Invoke-Item "C:\Windows\Resources\Themes\dark.theme"
 
