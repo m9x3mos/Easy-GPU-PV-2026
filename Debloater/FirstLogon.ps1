@@ -2,8 +2,8 @@
 	{
 		$winlogon = 'Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon';
 		Set-ItemProperty -LiteralPath $winlogon -Name 'AutoAdminLogon' -Value 1 -Type 'DWord' -Force;
-		Set-ItemProperty -LiteralPath $winlogon -Name 'DefaultUserName' -Value 'GPUVM' -Type 'String' -Force;
-		Set-ItemProperty -LiteralPath $winlogon -Name 'DefaultPassword' -Value 'CoolestPassword!' -Type 'String' -Force;
+		Set-ItemProperty -LiteralPath $winlogon -Name 'DefaultUserName' -Value '__EASYGPU_USERNAME__' -Type 'String' -Force;
+		Set-ItemProperty -LiteralPath $winlogon -Name 'DefaultPassword' -Value '__EASYGPU_PASSWORD__' -Type 'String' -Force;
 		Remove-ItemProperty -LiteralPath $winlogon -Name 'AutoLogonCount' -Force -ErrorAction 'SilentlyContinue';
 	};
 	{

@@ -5,7 +5,7 @@ $selectors = @(
     'Recall'
 )
 
-$timeoutSec = 90
+$timeoutSec = 270
 $removed  = 0
 $timedOut = 0
 $failed   = 0

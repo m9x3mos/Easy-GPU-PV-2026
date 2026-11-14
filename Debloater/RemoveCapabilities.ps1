@@ -11,7 +11,7 @@ $selectors = @(
     'Microsoft.Windows.WordPad'
 )
 
-$timeoutSec = 60
+$timeoutSec = 180
 $removed  = 0
 $timedOut = 0
 $failed   = 0

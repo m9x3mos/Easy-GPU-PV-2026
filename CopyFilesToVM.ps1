@@ -147,7 +147,9 @@ Function Setup-Install {
 param(
 [string]$DriveLetter,
 [string]$Team_ID,
-[string]$Key
+[string]$Key,
+[string]$username,
+[string]$password
 )
     $new = @()
 
@@ -175,6 +177,15 @@ param(
     if((Test-Path -Path $DriveLetter\Windows\Setup\Scripts) -eq $true) {} Else {New-Item -Path $DriveLetter\Windows\Setup\Scripts -ItemType directory -Force | Out-Null}
     Copy-Item -Path "$psscriptroot\Debloater\*" -Destination $DriveLetter\Windows\Setup\Scripts -Force
     Copy-Item -Path "$psscriptroot\Debloater\Run-Debloater.ps1" -Destination $DriveLetter\ProgramData\Easy-GPU-P -Force
+    # Template the auto-logon credentials into the VHD copy of FirstLogon.ps1 so the
+    # Winlogon auto-logon uses the setup's username/password, not the placeholders.
+    $firstLogon = "$DriveLetter\Windows\Setup\Scripts\FirstLogon.ps1"
+    if ((Test-Path -Path $firstLogon) -and $username -and $password) {
+        $t = Get-Content -LiteralPath $firstLogon -Raw
+        $t = $t.Replace('__EASYGPU_USERNAME__', $username)
+        $t = $t.Replace('__EASYGPU_PASSWORD__', $password.Replace("'", "''"))
+        Set-Content -LiteralPath $firstLogon -Value $t -NoNewline
+    }
 }
 
 function Convert-WindowsImage {
@@ -382,6 +393,16 @@ function Convert-WindowsImage {
         [string]
         #[ValidateNotNullOrEmpty()]
         [string]$Key,
+
+        [Parameter(ParameterSetName="SRC")]
+        [Alias("Username")]
+        [string]
+        [string]$username,
+
+        [Parameter(ParameterSetName="SRC")]
+        [Alias("Password")]
+        [string]
+        [string]$password,
 
         [Parameter(ParameterSetName="SRC")]
         [switch]
@@ -2491,7 +2512,7 @@ You can use the fields below to configure the VHD or VHDX that you want to creat
             }
 
             Write-W2VInfo "Setting up VBCable to install at boot"
-            Setup-Install -DriveLetter $WindowsDrive -Team_ID $team_id -Key $key
+            Setup-Install -DriveLetter $WindowsDrive -Team_ID $team_id -Key $key -username $username -password $password
 
             if ($DiskLayout -eq "UEFI")
             {
@@ -4364,7 +4385,7 @@ param(
         }
     Modify-AutoUnattend -username "$username" -password "$password" -autologon $autologon -hostname $VMName -UnattendPath $UnattendPath
     $MaxAvailableVersion = (Get-VMHostSupportedVersion).Version | Where-Object {$_.Major -lt 254}| Select-Object -Last 1 
-    Convert-WindowsImage -SourcePath $SourcePath -ISODriveLetter $DriveLetter -Edition $Edition -VHDFormat $Vhdformat -VHDPath $VhdPath -DiskLayout $DiskLayout -UnattendPath $UnattendPath -GPUName $GPUName -Team_ID $Team_ID -Key $Key -SizeBytes $SizeBytes| Out-Null
+    Convert-WindowsImage -SourcePath $SourcePath -ISODriveLetter $DriveLetter -Edition $Edition -VHDFormat $Vhdformat -VHDPath $VhdPath -DiskLayout $DiskLayout -UnattendPath $UnattendPath -GPUName $GPUName -Team_ID $Team_ID -Key $Key -username $username -password $password -SizeBytes $SizeBytes| Out-Null
     if (Test-Path $vhdPath) {
         New-VM -Name $VMName -MemoryStartupBytes $MemoryAmount -VHDPath $VhdPath -Generation 2 -SwitchName $NetworkSwitch -Version $MaxAvailableVersion | Out-Null
         Set-VM -Name $VMName -ProcessorCount $CPUCores -CheckpointType Disabled -LowMemoryMappedIoSpace 3GB -HighMemoryMappedIoSpace 32GB -GuestControlledCacheTypes $true -AutomaticStopAction ShutDown

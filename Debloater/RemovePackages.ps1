@@ -25,7 +25,7 @@ $packages = @(
 
 # Remove each package in its own dism.exe process with a hard timeout, so a
 # single stuck package is killed and skipped instead of hanging the whole run.
-$timeoutSec = 60
+$timeoutSec = 180
 $removed  = 0
 $timedOut = 0
 $failed   = 0
