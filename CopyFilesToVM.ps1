@@ -395,12 +395,10 @@ function Convert-WindowsImage {
         [string]$Key,
 
         [Parameter(ParameterSetName="SRC")]
-        [Alias("Username")]
         [string]
         [string]$username,
 
         [Parameter(ParameterSetName="SRC")]
-        [Alias("Password")]
         [string]
         [string]$password,
 
