@@ -55,9 +55,6 @@ if ($DriveLetter -notmatch '^[A-Za-z]:$') {
 Write-Host "INFO   : Drive Letter: $DriveLetter"
 Write-Host "INFO   : GPU Name: $GPUName"
 
-Write-Host "INFO   : Copying AMD OpenGL and Vulkan driver packages into VM..."
-Copy-AMDDriverPackages -VmFileRepository "$DriveLetter\Windows\System32\HostDriverStore\FileRepository"
-
 If ($GPUName -eq "AUTO") {
     $PartitionableGPUList = Get-WmiObject -Class "Msvm_PartitionableGpu" -ComputerName $env:COMPUTERNAME -Namespace "ROOT\virtualization\v2"
     $DevicePathName = $PartitionableGPUList.Name | Select-Object -First 1
@@ -69,7 +66,20 @@ Else {
     $GPU = Get-PnpDevice | Where-Object {($_.Name -eq "$GPUName") -and ($_.Status -eq "OK")} | Select-Object -First 1
     $GPUServiceName = $GPU.Service
     }
-# Get Third Party drivers used, that are not provided by Microsoft and presumably included in the OS
+
+    # Only pull the AMD OpenGL/Vulkan driver packages when the target GPU is AMD.
+    $gpuFriendlyName = if ($GPU) { [string]$GPU.FriendlyName } else { [string]$GPUName }
+    $gpuLookupName = $gpuFriendlyName.ToLowerInvariant()
+    $isAmdGpu = ($gpuLookupName -like "*amd*") -or ($gpuLookupName -like "*radeon*") -or ($gpuLookupName -like "*ati*")
+    If ($isAmdGpu) {
+        Write-Host "INFO   : Target GPU is AMD ($gpuFriendlyName) - copying AMD OpenGL and Vulkan driver packages into VM..."
+        Copy-AMDDriverPackages -VmFileRepository "$DriveLetter\Windows\System32\HostDriverStore\FileRepository"
+    }
+    Else {
+        Write-Host "INFO   : Target GPU is not AMD ($gpuFriendlyName) - skipping AMD OpenGL and Vulkan driver package copy."
+    }
+
+    # Get Third Party drivers used, that are not provided by Microsoft and presumably included in the OS
 
 Write-Host "INFO   : Finding and copying driver files for $GPUName to VM. This could take a while..."
 
