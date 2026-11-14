@@ -8,7 +8,7 @@ Easy-GPU-PV does the following...
 1) Creates a VM of your choosing
 2) Automatically Installs Windows to the VM
 3) Partitions your GPU of choice and copies the required driver files to the VM
-4) Runs a one-time debloat at the VM's first logon (removes bloatware, blocks OneDrive/Outlook/Copilot, and applies the dark theme)  
+4) Runs a two-phase debloat (before the first logon and again at the first logon) that removes bloatware, blocks OneDrive/Outlook/Copilot, left-aligns the taskbar, and applies the dark theme  
 
 After that, you should install a GPU accelerated remote desktop app / game streaming app as well as a virtual display driver to get the most out of the VM. Check the Issues tab on this repo to get recommendations.
 
@@ -40,27 +40,42 @@ After that, you should install a GPU accelerated remote desktop app / game strea
 - The parameter values in `CopyFilesToVM.ps1` are machine-specific; review and set the VM name, ISO path, storage, memory, CPU, and GPU values for your own host before running it.
 - `Fix-VMGpuPartitionAllocation.ps1` is available for VMs with GPU-PV allocation problems (for example, GPU workloads crashing during startup). See below before running it: it may forcibly stop a running VM.
 - Optional WOL and suspend listeners can wake a VM from the LAN and suspend/save it when a remote gaming session ends. Setup instructions follow.
-- The debloat (bundled app removal, Windows capability and optional-feature removal such as Recall, Fax, WordPad, and Media Player, OneDrive/Outlook/Copilot blocking, dark theme, and taskbar/Start layout) now runs as a one-time elevated task at the VM's first logon instead of during the Windows install. See the "One-time debloat" section below.
-- `autounattend.xml` keeps the standard unattended configuration (regional settings, autologon, the GPU-P account, en-US and dark-theme base settings); the heavy debloat work is done by the first-logon task, not the Windows Setup passes.
+- The debloat (bundled app removal, Windows capability and optional-feature removal such as Recall, Fax, WordPad, and Media Player, OneDrive/Outlook/Copilot blocking, dark theme, and taskbar/Start layout) runs in two phases: a lightweight pre-first-logon pass during the Windows Setup specialize pass, and the heavy removal as a one-time elevated task at the VM's first logon. See the "One-time debloat" section below.
+- `autounattend.xml` keeps the standard unattended configuration (regional settings, autologon, the GPU-P account, en-US and dark-theme base settings) and runs the pre-first-logon debloat during the specialize pass. The heavy capability and optional-feature removal still runs from the first-logon task.
 - AMD OpenGL and Vulkan driver packages (`amdogl.inf_amd64*` and `amdvlk.inf_amd64*`) are now automatically copied into the VM's `HostDriverStore\FileRepository`, improving OpenGL and Vulkan game support on AMD GPUs.
 
 ### One-time debloat
 
-Building a VM automatically runs a one-time debloat at the VM's first logon. You do not need to trigger it yourself; it runs once and then performs a single reboot to finalize. It:
+Building a VM automatically runs the debloat in two phases. You do not need to trigger it yourself; it finishes with a single reboot.
 
-- Removes the bundled Windows Store bloatware apps (`Debloater\RemovePackages.ps1`).
+**Phase 1 - before the first logon (`specialize` pass).** `autounattend.xml` runs `Debloater\PreFirstLogon.ps1` before the GPUVM profile exists. It removes the OneDrive setup binaries and shortcuts, removes the provisioned OneDrive, Copilot, and bundled app packages, applies machine policies that block OneDrive and Copilot, applies the default-profile settings, and sets the Start pins. This keeps those apps from ever installing into the new profile.
+
+**Phase 2 - at the first logon.** The Group Policy logon script (`User\Install.ps1`) registers and starts an elevated, interactive scheduled task named `EasyGPU Debloat`. That task runs `Debloater\Run-Debloater.ps1`, which:
+
+- Removes the bundled Windows Store bloatware apps (`Debloater\RemovePackages.ps1`). This includes News, Weather, Teams, To Do, Outlook, Phone Link, Solitaire, WhatsApp, Office (Microsoft 365 hub) and its helper packages, LinkedIn, Adobe Express, Mail and Calendar, Family, Clipchamp, the Windows Web Experience Pack (Widgets), OneDrive, and Copilot. The Xbox app is intentionally kept so it can still be installed from the Microsoft Store.
 - Removes Windows capabilities and optional features, including the Recall preview, Fax, WordPad, and Media Player (`Debloater\RemoveCapabilities.ps1`, `Debloater\RemoveFeatures.ps1`).
-- Applies machine policies that block OneDrive, Outlook, and Copilot setup and harden Edge and RDP (`Debloater\Specialize.ps1`).
-- Configures the default user and your account, applies the dark theme, and sets the taskbar and Start layout (`Debloater\DefaultUser.ps1`, `Debloater\UserOnce.ps1`, `Debloater\SetColorTheme.ps1`, `Debloater\SetStartPins.ps1`).
+- Applies machine policies that block OneDrive, Outlook, and Copilot setup, disable widgets (`AllowNewsAndInterests`), and harden Edge and RDP (`Debloater\Specialize.ps1`).
+- Loads the default-profile hive (`C:\Users\Default\NTUSER.DAT`), applies the taskbar/Start layout settings, hides the Widgets taskbar button, switches the Start **All apps** view to the list layout, and unloads it (`Debloater\DefaultUser.ps1`).
+- Removes the current user's Copilot, OneDrive, and bundled app packages (including the Windows Web Experience Pack), left-aligns the taskbar, clears all taskbar pins, hides the Widgets button, sets the Start **All apps** view to list, applies the dark theme, and restarts Explorer (`Debloater\UserOnce.ps1`, `Debloater\SetColorTheme.ps1`). The Start menu is pinned to Edge, File Explorer, and the Microsoft Store (`Debloater\SetStartPins.ps1`).
+- Runs `Debloater\Test-Debloat.ps1` and logs PASS/FAIL for each check.
+- Writes the completion flag and performs the one-time reboot.
 
 How it works:
 
 - The scripts live in `Debloater\`. At build time, `Setup-Install` (in `CopyFilesToVM.ps1`) copies them into the VHD: the script set goes to `C:\Windows\Setup\Scripts\` and the orchestrator to `C:\ProgramData\Easy-GPU-P\`.
-- At first logon, the Group Policy logon script (`User\Install.ps1`) registers and starts a one-time, elevated scheduled task named `EasyGPU Debloat`.
-- That task runs `Debloater\Run-Debloater.ps1`, which executes the debloat chain in order and then reboots once.
+- The pre-first-logon phase writes `C:\ProgramData\Easy-GPU-P\pre-first-logon.flag` so the first-logon log shows it ran.
 - A completion flag (`C:\ProgramData\Easy-GPU-P\debloat-complete.flag`) is written before the reboot, so the debloat never runs a second time (no reboot loop).
 
-If the debloat does not appear to have run, check that the `EasyGPU Debloat` task exists under **Task Scheduler** on the host/VM and review `C:\ProgramData\Easy-GPU-P\debloat.log`.
+If the debloat does not appear to have run, check that the `EasyGPU Debloat` task exists under **Task Scheduler** in the VM, then review these logs in the VM:
+
+- `C:\Windows\Setup\Scripts\PreFirstLogon.log`
+- `C:\Windows\Setup\Scripts\debloat.log`
+- `C:\Windows\Setup\Scripts\Specialize.log`
+- `C:\Windows\Setup\Scripts\DefaultUser.log`
+- `C:\Windows\Setup\Scripts\UserOnce.log`
+- `C:\Windows\Setup\Scripts\Test-Debloat.log`
+
+To re-run the checks by hand, run `C:\Windows\Setup\Scripts\Test-Debloat.ps1` in an elevated PowerShell inside the VM. To re-run the whole chain, delete `C:\ProgramData\Easy-GPU-P\debloat-complete.flag` first.
 
 ### Fixing GPU partition allocation
 
